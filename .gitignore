@@ -1,0 +1,7 @@
+# Build output
+SideTab.app/
+Resources/
+build.log
+
+# macOS
+.DS_Store

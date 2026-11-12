@@ -1,0 +1,442 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#000000">
+<title>SideTab</title>
+<style>
+  :root {
+    --text: #f5f5f7;
+    --secondary: #a1a1a6;
+    --blue: #0a84ff;
+  }
+  html, body {
+    margin: 0;
+    height: 100%;
+    overflow: hidden;
+    background: #000;
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", "Inter", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    touch-action: none;
+    overscroll-behavior: none;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  canvas {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    background: #000;
+  }
+  #panel {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 32px;
+    text-align: center;
+    background: radial-gradient(ellipse at 50% 38%, #1c1c1e 0%, #000 70%);
+    transition: opacity 0.35s ease;
+  }
+  #panel.over-picture {
+    background: rgba(0, 0, 0, 0.55);
+    -webkit-backdrop-filter: blur(30px) saturate(1.4);
+    backdrop-filter: blur(30px) saturate(1.4);
+  }
+  #panel.hidden { opacity: 0; pointer-events: none; }
+  #glyph { width: 132px; height: 96px; margin-bottom: 26px; color: var(--text); }
+  h1 {
+    margin: 0 0 8px;
+    font-size: 34px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+  }
+  #status {
+    margin: 0;
+    max-width: 30em;
+    min-height: 1.4em;
+    font-size: 17px;
+    line-height: 1.4;
+    color: var(--secondary);
+  }
+  #spinner {
+    width: 22px;
+    height: 22px;
+    margin-top: 26px;
+    border-radius: 50%;
+    border: 2.5px solid rgba(255, 255, 255, 0.16);
+    border-top-color: rgba(255, 255, 255, 0.75);
+    animation: spin 0.9s linear infinite;
+  }
+  #spinner[hidden] { display: none; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  #start {
+    margin-top: 30px;
+    appearance: none;
+    border: 0;
+    border-radius: 980px;
+    padding: 14px 32px;
+    font: inherit;
+    font-size: 17px;
+    font-weight: 500;
+    color: #fff;
+    background: var(--blue);
+    transition: transform 0.12s ease, filter 0.12s ease;
+  }
+  #start:active { transform: scale(0.97); filter: brightness(0.9); }
+  #start[hidden] { display: none; }
+  #hint {
+    position: fixed;
+    bottom: calc(22px + env(safe-area-inset-bottom));
+    left: 0;
+    right: 0;
+    font-size: 13px;
+    color: #6e6e73;
+  }
+  #hud {
+    position: fixed;
+    left: 10px;
+    bottom: 8px;
+    padding: 4px 9px;
+    border-radius: 8px;
+    font: 12px ui-monospace, "SF Mono", Menlo, monospace;
+    color: #e5e5ea;
+    background: rgba(28, 28, 30, 0.7);
+    -webkit-backdrop-filter: blur(12px);
+    backdrop-filter: blur(12px);
+    pointer-events: none;
+  }
+  #hud[hidden] { display: none; }
+</style>
+</head>
+<body>
+<canvas id="screen"></canvas>
+
+<div id="panel">
+  <svg id="glyph" viewBox="0 0 132 96" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <rect x="10" y="10" width="78" height="52" rx="5"/>
+    <path d="M2 72h96"/>
+    <path d="M10 62l-8 10"/>
+    <path d="M88 62l8 10"/>
+    <rect x="72" y="34" width="56" height="58" rx="7" fill="#000"/>
+    <path d="M95 86h10"/>
+  </svg>
+  <h1>SideTab</h1>
+  <p id="status">Starting…</p>
+  <div id="spinner"></div>
+  <button id="start" type="button" hidden>Use as Display</button>
+  <div id="hint">Swipe from the edge of the screen to leave full screen.</div>
+</div>
+
+<div id="hud" hidden></div>
+
+<script>
+(() => {
+  'use strict';
+
+  const canvas = document.getElementById('screen');
+  const context = canvas.getContext('2d', { alpha: false });
+  const panel = document.getElementById('panel');
+  const statusText = document.getElementById('status');
+  const spinner = document.getElementById('spinner');
+  const startButton = document.getElementById('start');
+  const hint = document.getElementById('hint');
+  const hud = document.getElementById('hud');
+
+  // The Mac serves this page on one port and the video on the next one up.
+  const videoURL = `ws://${location.hostname}:${Number(location.port || 80) + 1}/`;
+
+  let socket = null;
+  let decoder = null;
+  let decoderSignature = null;
+  let waitingForKeyframe = true;
+  let streaming = false;      // a picture is on screen
+  let started = false;        // the person tapped "Use as Display"
+  let macIsOn = true;
+  let wakeLock = null;
+  let lastKeyframeRequest = 0;
+  let framesDrawn = 0;
+  let bytesReceived = 0;
+
+  function refreshPanel(message, busy) {
+    if (message !== undefined) statusText.textContent = message;
+    spinner.hidden = !busy || streaming;
+    startButton.hidden = !streaming || started;
+    hint.hidden = !streaming || started;
+    panel.classList.toggle('over-picture', streaming);
+    panel.classList.toggle('hidden', streaming && started);
+  }
+
+  if (!('VideoDecoder' in window)) {
+    refreshPanel(window.isSecureContext
+      ? 'This browser can’t decode video. Open this page in Chrome.'
+      : 'Open this page as http://localhost through the USB cable.', false);
+    return;
+  }
+
+  // ---- Decoding -----------------------------------------------------------
+
+  // Finds the SPS in a keyframe. It gives the codec string the decoder wants
+  // ("avc1.640033") and, compared as a whole, shows when the picture size changed.
+  function readSPS(bytes) {
+    const limit = Math.min(bytes.length - 7, 512);
+    for (let i = 0; i < limit; i++) {
+      if (bytes[i] === 0 && bytes[i + 1] === 0 && bytes[i + 2] === 1 && (bytes[i + 3] & 0x1f) === 7) {
+        let end = i + 4;
+        while (end + 2 < bytes.length && !(bytes[end] === 0 && bytes[end + 1] === 0 && (bytes[end + 2] === 1 || bytes[end + 2] === 0))) end++;
+        const hex = value => value.toString(16).padStart(2, '0');
+        const sps = bytes.subarray(i + 4, end);
+        return {
+          codec: 'avc1.' + hex(bytes[i + 4]) + hex(bytes[i + 5]) + hex(bytes[i + 6]),
+          signature: Array.from(sps, hex).join(''),
+        };
+      }
+    }
+    return null;
+  }
+
+  let pendingFrame = null;
+  let drawScheduled = false;
+  const stats = { received: 0, decoded: 0, drawn: 0, skipped: 0, dropped: 0, decodeMs: 0, maxGapMs: 0 };
+  let lastArrival = 0;
+
+  function drawPending() {
+    drawScheduled = false;
+    const frame = pendingFrame;
+    pendingFrame = null;
+    if (!frame) return;
+    if (canvas.width !== frame.displayWidth || canvas.height !== frame.displayHeight) {
+      canvas.width = frame.displayWidth;
+      canvas.height = frame.displayHeight;
+    }
+    context.drawImage(frame, 0, 0);
+    frame.close();
+    framesDrawn++;
+    stats.drawn++;
+  }
+
+  // Every 2 s, tell the Mac how playback is going (it goes into SideTab's log).
+  setInterval(() => {
+    if (socket && socket.readyState === WebSocket.OPEN && stats.received > 0) {
+      socket.send(JSON.stringify({
+        type: 'stats',
+        recvFps: Math.round(stats.received / 2),
+        drawnFps: Math.round(stats.drawn / 2),
+        skipped: stats.skipped,
+        dropped: stats.dropped,
+        decodeMs: stats.decoded ? Math.round(stats.decodeMs / stats.decoded) : 0,
+        maxGapMs: Math.round(stats.maxGapMs),
+        queue: decoder ? decoder.decodeQueueSize : 0,
+        refresh: Math.round(refreshRate),
+      }));
+    }
+    for (const key in stats) stats[key] = 0;
+  }, 2000);
+
+  // Measure the tablet's screen refresh rate.
+  let refreshRate = 60;
+  (() => {
+    let count = 0, first = 0;
+    const tick = now => {
+      if (!first) first = now;
+      if (++count < 60) requestAnimationFrame(tick);
+      else refreshRate = 1000 * (count - 1) / (now - first);
+    };
+    requestAnimationFrame(tick);
+  })();
+
+  function closeDecoder() {
+    if (pendingFrame) { pendingFrame.close(); pendingFrame = null; }
+    if (decoder && decoder.state !== 'closed') {
+      try { decoder.close(); } catch (error) { /* already gone */ }
+    }
+    decoder = null;
+    decoderSignature = null;
+    waitingForKeyframe = true;
+  }
+
+  function openDecoder(sps) {
+    closeDecoder();
+    const created = new VideoDecoder({
+      output: frame => {
+        if (created !== decoder) { frame.close(); return; }
+        stats.decoded++;
+        stats.decodeMs += performance.now() - frame.timestamp / 1000;
+        // Draw on the next screen refresh. If a newer frame arrives first,
+        // the older one is skipped rather than drawn late.
+        if (pendingFrame) { pendingFrame.close(); stats.skipped++; }
+        pendingFrame = frame;
+        if (!drawScheduled) { drawScheduled = true; requestAnimationFrame(drawPending); }
+        if (!streaming) {
+          streaming = true;
+          refreshPanel('Your Mac is ready.', false);
+        }
+      },
+      error: error => {
+        if (created !== decoder) return;
+        console.error(error);
+        closeDecoder();
+        streaming = false;
+        refreshPanel('This tablet couldn’t play the picture. Choose a smaller resolution in SideTab on your Mac.', false);
+        requestKeyframe();
+      },
+    });
+    created.configure({ codec: sps.codec, optimizeForLatency: true });
+    decoder = created;
+    decoderSignature = sps.signature;
+  }
+
+  function requestKeyframe() {
+    const now = performance.now();
+    if (socket && socket.readyState === WebSocket.OPEN && now - lastKeyframeRequest > 500) {
+      lastKeyframeRequest = now;
+      socket.send('key');
+    }
+  }
+
+  function handleStatus(text) {
+    if (text === 'off') {
+      macIsOn = false;
+      closeDecoder();
+      streaming = false;
+      refreshPanel('SideTab is turned off on your Mac.', false);
+    } else if (text === 'on') {
+      macIsOn = true;
+      if (!streaming) refreshPanel('Connecting to your Mac…', true);
+    }
+  }
+
+  // Each binary message: one flag byte (1 = keyframe) then H.264 in Annex B form.
+  function handleMessage(event) {
+    if (typeof event.data === 'string') { handleStatus(event.data); return; }
+    if (!macIsOn) return;
+    const message = new Uint8Array(event.data);
+    if (message.length < 2) return;
+    bytesReceived += message.length;
+    const arrival = performance.now();
+    if (lastArrival) stats.maxGapMs = Math.max(stats.maxGapMs, arrival - lastArrival);
+    lastArrival = arrival;
+    stats.received++;
+
+    const isKeyframe = message[0] === 1;
+    const frame = message.subarray(1);
+
+    if (isKeyframe) {
+      const sps = readSPS(frame);
+      if (!sps) return;
+      if (!decoder || decoder.state !== 'configured' || sps.signature !== decoderSignature) openDecoder(sps);
+      waitingForKeyframe = false;
+    } else {
+      if (waitingForKeyframe || !decoder) return;
+      if (decoder.decodeQueueSize > 6) {
+        // Falling behind: skip ahead to a fresh keyframe rather than lag.
+        stats.dropped++;
+        waitingForKeyframe = true;
+        requestKeyframe();
+        return;
+      }
+    }
+
+    try {
+      decoder.decode(new EncodedVideoChunk({
+        type: isKeyframe ? 'key' : 'delta',
+        timestamp: Math.round(performance.now() * 1000),
+        data: frame,
+      }));
+    } catch (error) {
+      console.error(error);
+      closeDecoder();
+      requestKeyframe();
+    }
+  }
+
+  // ---- Connection ---------------------------------------------------------
+
+  function connect() {
+    const created = new WebSocket(videoURL);
+    created.binaryType = 'arraybuffer';
+    socket = created;
+
+    created.onopen = () => {
+      refreshPanel('Connecting to your Mac…', true);
+      const ratio = window.devicePixelRatio || 1;
+      created.send(JSON.stringify({
+        type: 'hello',
+        w: Math.round(Math.max(screen.width, screen.height) * ratio),
+        h: Math.round(Math.min(screen.width, screen.height) * ratio),
+        dpr: ratio,
+      }));
+    };
+    created.onmessage = handleMessage;
+    created.onclose = () => {
+      if (socket === created) socket = null;
+      closeDecoder();
+      streaming = false;
+      refreshPanel('Connect your tablet to your Mac with a USB-C cable.', true);
+      setTimeout(connect, 1000);
+    };
+  }
+
+  // ---- Full screen and staying awake --------------------------------------
+
+  async function keepAwake() {
+    if (!('wakeLock' in navigator) || wakeLock) return;
+    try {
+      wakeLock = await navigator.wakeLock.request('screen');
+      wakeLock.addEventListener('release', () => { wakeLock = null; });
+    } catch (error) { /* the browser said no; the screen may dim */ }
+  }
+
+  async function start() {
+    started = true;
+    refreshPanel(undefined, false);
+    try { await document.documentElement.requestFullscreen({ navigationUI: 'hide' }); } catch (error) { /* stay windowed */ }
+    try { await screen.orientation.lock('landscape'); } catch (error) { /* not supported everywhere */ }
+    await keepAwake();
+  }
+
+  startButton.addEventListener('click', start);
+
+  document.addEventListener('fullscreenchange', () => {
+    // Leaving full screen (edge swipe) brings the button back.
+    if (!document.fullscreenElement && started) {
+      started = false;
+      refreshPanel('Your Mac is ready.', false);
+    }
+  });
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState !== 'visible') return;
+    if (started) keepAwake();
+    waitingForKeyframe = true;
+    requestKeyframe();
+  });
+
+  document.addEventListener('contextmenu', event => event.preventDefault());
+
+  // ---- Optional readout: add #stats to the address ------------------------
+
+  if (location.hash === '#stats') {
+    hud.hidden = false;
+    setInterval(() => {
+      const megabits = (bytesReceived * 8 / 1e6).toFixed(1);
+      const queue = decoder ? decoder.decodeQueueSize : 0;
+      hud.textContent = `${framesDrawn} fps · ${megabits} Mbit/s · ${canvas.width}×${canvas.height} · queue ${queue}`;
+      framesDrawn = 0;
+      bytesReceived = 0;
+    }, 1000);
+  }
+
+  refreshPanel('Connecting to your Mac…', true);
+  connect();
+})();
+</script>
+</body>
+</html>
