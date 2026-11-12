@@ -38,8 +38,8 @@ Tested on a MacBook Pro (M4) with a Samsung Galaxy Tab S9.
 ## Install
 
 ```bash
-git clone https://github.com//SideTab.git
-cd SideTab
+git clone https://github.com/simoensm/sidetab.git
+cd sidetab
 bash build.sh install
 ```
 
