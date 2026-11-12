@@ -45,6 +45,14 @@ final class AppModel: ObservableObject {
         }
     }
 
+    @Published var chargeTablet: Bool {
+        didSet {
+            AppModel.defaults.set(chargeTablet, forKey: "chargeTablet")
+            link.setChargeTablet(chargeTablet)
+        }
+    }
+
+    @Published private(set) var battery: AndroidLink.Battery?
     @Published private(set) var tablet = AndroidLink.State.searching
     @Published private(set) var viewerCount = 0
     @Published private(set) var activeGeometry: DisplayGeometry?
@@ -70,6 +78,7 @@ final class AppModel: ObservableObject {
 
         isEnabled = AppModel.defaults.object(forKey: "enabled") as? Bool ?? true
         resolution = ResolutionChoice(rawValue: AppModel.defaults.string(forKey: "resolution") ?? "") ?? .sameAsMac
+        chargeTablet = AppModel.defaults.object(forKey: "chargeTablet") as? Bool ?? true
         frameRate = FrameRate(rawValue: AppModel.defaults.integer(forKey: "frameRate")) ?? .sixty
         quality = VideoQuality(rawValue: AppModel.defaults.string(forKey: "quality") ?? "") ?? .high
         let width = AppModel.defaults.double(forKey: "tabletWidth")
@@ -106,6 +115,18 @@ final class AppModel: ObservableObject {
         case .ready:
             if viewerCount > 0 { return "Connected via USB" }
             return activeGeometry == nil ? "Preparing display…" : "Opening on your tablet…"
+        }
+    }
+
+    var batterySymbol: String {
+        guard let battery else { return "battery.0percent" }
+        if battery.isCharging || battery.isFull { return "battery.100percent.bolt" }
+        switch battery.level {
+        case ..<13: return "battery.0percent"
+        case ..<38: return "battery.25percent"
+        case ..<63: return "battery.50percent"
+        case ..<88: return "battery.75percent"
+        default: return "battery.100percent"
         }
     }
 
@@ -197,6 +218,12 @@ final class AppModel: ObservableObject {
                 self?.tabletChanged(state)
             }
         }
+        link.onBatteryChange = { [weak self] battery in
+            DispatchQueue.main.async {
+                self?.battery = battery
+            }
+        }
+        link.setChargeTablet(chargeTablet)
         link.start(port: AppModel.port)
 
         // "Same as Mac" follows the Mac's screen when its resolution changes.

@@ -18,8 +18,9 @@ Apple's Sidecar only works with iPads, and Samsung's Second Screen only works wi
 - **A real extended display.** macOS sees it as a monitor, so it works with every app, Mission Control and Displays settings.
 - **Plug and play.** SideTab lives in the menu bar. Plug the tablet in and the display appears; unplug it and it goes away.
 - **Sharp.** Retina (2x) rendering, encoded with the Mac's hardware H.264 encoder.
-- **Smooth.** 30, 60 or 120 fps, with frame pacing tuned for Android's hardware decoders.
+- **Smooth.** 60 fps (or 30 to save power), with frame pacing tuned for Android's hardware decoders.
 - **Your choice of size.** *Same as Mac* matches your Mac's screen so windows and text look the same on both; *Larger Text*, *Default* and *More Space* fit the tablet exactly.
+- **Charges your tablet.** Galaxy tablets often power the Mac over USB-C instead of the other way round; SideTab switches the port so the tablet charges from the Mac, and shows its battery in the menu.
 - **Wired and private.** Everything goes through the USB cable. SideTab only listens on your Mac's loopback interface, never on your network.
 
 ## Requirements
@@ -59,7 +60,8 @@ Click the icon in the menu bar:
 
 - **Switch** – on means "become a display whenever the tablet is plugged in".
 - **Resolution** – *Same as Mac*, *Larger Text*, *Default* or *More Space*.
-- **Video** – frame rate (30 / 60 / 120) and quality (Balanced / High / Maximum).
+- **Video** – frame rate (30 / 60) and quality (Balanced / High / Maximum).
+- **Charge Tablet** – on: the tablet charges from the Mac (default). Off: it doesn't charge; USB-C has no neutral mode, so the tablet then powers the Mac instead.
 - **Open on Tablet** – reopens the viewer if you closed it.
 - **Open at Login** – start SideTab with your Mac.
 
@@ -77,6 +79,7 @@ SideTab writes a log to `~/Library/Logs/SideTab.log`; compiler output goes to `b
 | "Port 8080 is in use" | Another copy of SideTab is running. |
 | Tablet says it can't play the picture | Pick *Default* or *Larger Text*. |
 | Picture feels choppy | Keep the frame rate at 60 and set the tablet's Motion smoothness to Adaptive. Add `#stats` to the address on the tablet (`http://localhost:8080/#stats`) for a live readout. |
+| Tablet battery drains while plugged in | Make sure **Charge Tablet** is on; SideTab checks every 10 seconds and switches the tablet's USB port to charging. |
 | Thin black bars | *Same as Mac* keeps your Mac's shape; the other sizes fill the tablet exactly. |
 
 ## How it works

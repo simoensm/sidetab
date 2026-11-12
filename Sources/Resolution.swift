@@ -119,8 +119,10 @@ enum VideoQuality: String, CaseIterable, Identifiable {
     }
 }
 
+/// The tablet's browser redraws at 60 Hz at most, so higher rates only add load
+/// (120 fps made the tablet's decoder fall behind and freeze).
 enum FrameRate: Int, CaseIterable, Identifiable {
-    case thirty = 30, sixty = 60, oneTwenty = 120
+    case thirty = 30, sixty = 60
 
     var id: Int { rawValue }
     var title: String { "\(rawValue)" }

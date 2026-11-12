@@ -60,6 +60,23 @@ struct MenuView: View {
                 Spacer()
             }
             HStack {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Charge Tablet")
+                    if !model.chargeTablet {
+                        Text("The tablet powers the Mac instead")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                Spacer()
+                Toggle("Charge Tablet", isOn: $model.chargeTablet)
+                    .toggleStyle(.switch)
+                    .labelsHidden()
+                    .controlSize(.mini)
+            }
+            .padding(.horizontal, 14)
+            .frame(minHeight: 26)
+            HStack {
                 Text("Open at Login")
                 Spacer()
                 Toggle("Open at Login", isOn: Binding(
@@ -118,6 +135,18 @@ struct MenuView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 0)
+            if let battery = model.battery {
+                HStack(spacing: 4) {
+                    Text("\(battery.level)%")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                    Image(systemName: model.batterySymbol)
+                        .font(.system(size: 13))
+                        .foregroundStyle(battery.level < 15 && !battery.isCharging ? Color.red : Color.secondary)
+                }
+                .help(battery.isCharging ? "Charging" : battery.isFull ? "Charged" : "Not charging")
+            }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 5)
